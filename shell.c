@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <stdbool.h>
+#include <sys/wait.h>
+#include <sys/types.h>
 
 typedef struct {
 	int size;
@@ -9,8 +13,11 @@ typedef struct {
 
 char *get_input(void);
 tokenlist *get_tokens(char *input);
+
 void echo(char *input);
 void tilde_expand(char *input);
+bool path_search(char **input);
+bool exec_command(char *input, char **args);
 
 tokenlist *new_tokenlist(void);
 void add_token(tokenlist *tokens, char *item);
@@ -21,7 +28,7 @@ void free_tokens(tokenlist *tokens);
 
 int main()
 {
-	
+
 	while (1) {
 		printf("%s@%s:%s>", getenv("USER"), getenv("MACHINE"), getenv("PWD"));
 
@@ -37,9 +44,21 @@ int main()
 
 		}
 		if (strcmp(tokens->items[0],"echo") == 0){
-			echo(tokens->items[1]);
+			if(strchr(tokens->items[1], '~') != NULL){
+				tilde_expand(tokens->items[1]);
+			}
+			else
+				echo(tokens->items[1]);
 		}
-		tilde_expand(tokens->items[0]);
+		else{
+			if (path_search(tokens->items) == true){
+				
+			}
+			else{
+				
+			}
+			
+		}
 
 
 		free(input);
@@ -47,6 +66,81 @@ int main()
 	}
 
 	return 0;
+}
+
+bool exec_command(char *input, char **args){
+	printf("Made it to exec_command\n");	
+	char *const arguments[] = {"ls", NULL};
+	printf("The arg is %s\n", arguments[0]);
+	pid_t pid, wait;
+	int status;
+	pid = fork();
+	if (pid == 0){
+		printf("Im the child\n");
+		execv(input, arguments);
+	}
+	else {
+		printf("Im the parent\n");
+		wait = waitpid(pid, &status, 0);
+	}
+}
+
+bool path_search(char **input)
+{
+	char slash[2] = "/";
+	char *command = (char *) malloc(sizeof(input[0]) + 3);
+	strcat(command,slash);
+	strcat(command,input[0]);
+	
+	const char d[2] = ":";
+	const char *path = getenv("PATH");
+	char *copy = (char *) malloc(strlen(path) + 1);
+	strcpy(copy, path);
+	if (copy == NULL){
+		
+	}
+	
+	
+	char *token = (char *) malloc(sizeof(char) + 1);
+	strcat(token, strtok(copy, d));
+	int check = 1;
+	
+	while(token != NULL && check != 0)
+	{
+		char x[strlen(token)+strlen(command)+1];
+		char *args = (char *) malloc(sizeof(input));
+		int count = 1;
+		strcat(x, token);
+		strcat(x, command);
+		check = access(x,F_OK);
+		if(check == 0){
+			//for (count; count < strlen(*input); count++) 
+				//args[count] = *input[count];
+			//args[count] = NULL;
+			exec_command(x, input);
+			//free(args);
+			//free(command);
+			//free (token);
+			//free (copy);
+			//args = NULL;
+			//command = NULL;
+			//token = NULL;
+			//copy = NULL;
+			return true;
+		}
+		strcpy(x,"");
+		free (token);
+		token = (char *) malloc(sizeof(char) + 1);
+		strcat(token, strtok(NULL, d));
+	}
+	
+	free(command);
+	free (token);
+	free (copy);
+	command = NULL;
+	token = NULL;
+	copy = NULL;
+	return false;
 }
 
 void tilde_expand(char *input){
@@ -62,11 +156,11 @@ void tilde_expand(char *input){
 		for( int i = 0; i < x; i++){
 			answer[i] = home[i];
 		}
-		for( int i = index; i < strlen(input); i++)
+		for( int i = index + 1; i < strlen(input); i++)
 		{
 			//answer[variable] = input[i]
 			answer[x] = input[i];
-			x += 1; 
+			x += 1;
 		}
 	}
 	echo(answer);
@@ -80,7 +174,7 @@ void echo(char* input){
 	const char ch = '$';
 
 	if(strchr(input,ch) == NULL){
-		printf(input, "\n");
+		printf("%s \n", input);
 	}
 	else{
 		while(counter < strlen(answer))
@@ -90,9 +184,9 @@ void echo(char* input){
 		}
 		answer = getenv(input);
 		if(answer == NULL)
-			printf("Error");
+			printf("Error \n");
 		else
-			printf(answer, "\n");
+			printf("%s \n", answer);
 	}
 
 
