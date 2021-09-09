@@ -16,15 +16,12 @@ tokenlist *get_tokens(char *input);
 
 void echo(char *input);
 void tilde_expand(char *input);
-bool path_search(char **input);
-bool exec_command(char *input, char **args);
+bool path_search(tokenlist *input);
+void exec_command(char *input, tokenlist *args);
 
 tokenlist *new_tokenlist(void);
 void add_token(tokenlist *tokens, char *item);
 void free_tokens(tokenlist *tokens);
-
-
-
 
 int main()
 {
@@ -51,7 +48,7 @@ int main()
 				echo(tokens->items[1]);
 		}
 		else{
-			if (path_search(tokens->items) == true){
+			if (path_search(tokens) == true){
 				
 			}
 			else{
@@ -68,29 +65,29 @@ int main()
 	return 0;
 }
 
-bool exec_command(char *input, char **args){
-	printf("Made it to exec_command\n");	
-	char *const arguments[] = {"ls", NULL};
-	printf("The arg is %s\n", arguments[0]);
+void exec_command(char *input, tokenlist *args){
+	//printf("Made it to exec_command\n");	
+	char *const arguments[] = {"", NULL};
+	//printf("The arg is %s\n", arguments[0]);
 	pid_t pid, wait;
 	int status;
 	pid = fork();
 	if (pid == 0){
-		printf("Im the child\n");
-		execv(input, arguments);
+		//printf("Im the child\n");
+		execv(input, args->items);
 	}
 	else {
-		printf("Im the parent\n");
+		//printf("Im the parent\n");
 		wait = waitpid(pid, &status, 0);
 	}
 }
 
-bool path_search(char **input)
+bool path_search(tokenlist *input)
 {
 	char slash[2] = "/";
 	char *command = (char *) malloc(sizeof(input[0]) + 3);
 	strcat(command,slash);
-	strcat(command,input[0]);
+	strcat(command,input->items[0]);
 	
 	const char d[2] = ":";
 	const char *path = getenv("PATH");
@@ -104,32 +101,27 @@ bool path_search(char **input)
 	char *token = (char *) malloc(sizeof(char) + 1);
 	strcat(token, strtok(copy, d));
 	int check = 1;
-	
+	printf("Made the new tokenlist\n");
+
 	while(token != NULL && check != 0)
 	{
 		char x[strlen(token)+strlen(command)+1];
-		char *args = (char *) malloc(sizeof(input));
 		int count = 1;
 		strcat(x, token);
 		strcat(x, command);
 		check = access(x,F_OK);
 		if(check == 0){
-			//for (count; count < strlen(*input); count++) 
-				//args[count] = *input[count];
-			//args[count] = NULL;
 			exec_command(x, input);
-			//free(args);
 			//free(command);
-			//free (token);
+			//free(token);
 			//free (copy);
-			//args = NULL;
 			//command = NULL;
 			//token = NULL;
 			//copy = NULL;
 			return true;
 		}
 		strcpy(x,"");
-		free (token);
+		free(token);
 		token = (char *) malloc(sizeof(char) + 1);
 		strcat(token, strtok(NULL, d));
 	}
