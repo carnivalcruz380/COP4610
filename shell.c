@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <fcntl.h>
 
 typedef struct {
     int size;
@@ -20,7 +21,9 @@ void free_tokens(tokenlist *tokens);
 void echo(char *input);
 void tilde_expand(char *input);
 bool path_search(tokenlist *input);
-void exec_command(char *input, tokenlist *args);
+void exec_command(char *input, tokenlist *args, bool in_redirection, bool out_redirection, int inposition, int outposition);
+bool in_redirect(const char *file, char *input, tokenlist *args);
+bool out_redirect(const char *file, char *input, tokenlist *args);
 
 int main()
 {
@@ -143,24 +146,79 @@ void free_tokens(tokenlist *tokens)
     free(tokens);
 }
 
-void exec_command(char *input, tokenlist *args){
-    pid_t pid, wait;	// pid variables 
-    int status;
-    pid = fork();
-	// child process
-    if (pid == 0){
-		// executing command
-        execv(input, args->items);
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+void echo(char* input){
+    char* answer = input;
+    char* home;
+    int index;
+    int counter = 0;
+    const char ch = '$';
+
+    if(strchr(input,ch) == NULL){
+        printf("%s \n", input);
     }
-	// parent process
-    else {
-		// waiting for command execution to return 
-        wait = waitpid(pid, &status, 0);
+    else{
+        while(counter < strlen(answer))
+        {
+            answer[counter] = answer[counter+1];
+            counter += 1;
+        }
+        answer = getenv(input);
+        if(answer == NULL)
+            printf("Error \n");
+        else
+            printf("%s \n", answer);
     }
 }
 
+void tilde_expand(char *input){
+    char *home = getenv("HOME");	// enviornmental home variable 
+    char *position;	// position of tilde variable
+    char answer[strlen(home) + strlen(input)];// local home variable 	
+    int index;
+    int x = strlen(home);
+
+    if(strchr(input,'~') != NULL){
+		// retreiving position of tilde
+        position  = strchr(input,'~');
+        index = (int)(position - input);
+		// copying enviornmental into local home variable
+        for( int i = 0; i < x; i++){
+            answer[i] = home[i];
+        }
+		// removing tilde 
+        for( int i = index + 1; i < strlen(input); i++)
+        {
+            //answer[variable] = input[i]
+            answer[x] = input[i];
+            x += 1;
+        }
+    }
+    echo(answer);
+}
+
+
 bool path_search(tokenlist *input)
 {
+	// file redirection variables 
+	bool check_inredirect = false;
+	bool check_outredirect = false;
+	int inpos = -1;
+	int outpos = -1;
+	for (int i = 0; i < input->size; i++){
+		if (strcmp(input->items[i], ">") == 0){
+			check_inredirect = true;
+			inpos = i;
+		}
+		if (strcmp(input->items[i], "<") == 0){
+			check_outredirect = true;
+			outpos = i;
+		}
+			
+	}
+	
 	// static variable initialization
     char slash[2] = "/";	// slash for command path variable 
 	const char delim[2] = ":";	// delimeter for path string variable 
@@ -216,8 +274,8 @@ bool path_search(tokenlist *input)
 		
 		// if file exists, execute it
         if(check == 0){
-            exec_command(filepath, input);	// pass the file and args to be executed 
-            printf("found the token\n");
+			exec_command(filepath, input, check_inredirect, check_outredirect, inpos, outpos);	// pass the file and args to be executed 
+			printf("found the token\n");
         }
         
 		char *temp2 = strtok(NULL, delim);	// temporary variable to store the next directory to be searched
@@ -238,54 +296,117 @@ bool path_search(tokenlist *input)
         return false;
 }
 
-void tilde_expand(char *input){
-    char *home = getenv("HOME");	// enviornmental home variable 
-    char *position;	// position of tilde variable
-    char answer[strlen(home) + strlen(input)];// local home variable 	
-    int index;
-    int x = strlen(home);
 
-    if(strchr(input,'~') != NULL){
-		// retreiving position of tilde
-        position  = strchr(input,'~');
-        index = (int)(position - input);
-		// copying enviornmental into local home variable
-        for( int i = 0; i < x; i++){
-            answer[i] = home[i];
-        }
-		// removing tilde 
-        for( int i = index + 1; i < strlen(input); i++)
-        {
-            //answer[variable] = input[i]
-            answer[x] = input[i];
-            x += 1;
-        }
-    }
-    echo(answer);
+void exec_command(char *input, tokenlist *args, bool in_redirection, bool out_redirection, int inposition, int outposition){
+    pid_t pid, wait;	// pid variables 
+    int status;
+	char *infile;	// input redirection file variable 
+	char *outfile;	// output redirection file variable 
+	int index;	// position of the redirection variable 
+	tokenlist *arglist = new_tokenlist();	// new token list to parse out redirection
+	
+	// if blocks to parse the input and remove the redirection statements 
+	if (in_redirection && out_redirection){
+		// retrieving the input and output files 
+		infile = args->items[inposition + 1];
+		outfile = args->items[outposition +1];
+		// if block for if the input redirection comes first
+		if (inposition < outposition){
+			index = inposition;
+			// loop to add tokens before redirection
+			for (int i = 0; i < index; i++){
+				add_token(arglist, args->items[i]);
+			}
+		}
+		// block for if the output redirection comes first 
+		else {
+			index = outposition;
+			// loop to add tokens before redirection
+			for (int i = 0; i < index; i++){
+				add_token(arglist, args->items[i]);
+			}
+		}
+	}
+	// block for if there is only input redirection
+	else if (in_redirection == true){
+		index = inposition;
+		infile = args->items[inposition + 1];
+		for (int i = 0; i < index; i++){
+			add_token(arglist, args->items[i]);
+		}
+	}
+	// block for if there is only output redirection 
+	else if (out_redirection == true){
+		index = outposition;
+		outfile = args->items[outposition +1];
+		for (int i = 0; i < index; i++){
+			add_token(arglist, args->items[i]);
+		}
+	}
+	// block if there is no redirection statements 
+	else {
+		infile = NULL;
+		outfile = NULL;
+	}
+	
+	// block for executing commands that have redirection
+	if (arglist->items[0] != NULL){
+		
+	}
+	// block for executing commands with no redirection
+	else {
+		// creating new process
+		pid = fork();
+		// child process
+		if (pid == 0){
+			// executing command
+			execv(input, args->items);
+		}
+		// parent process
+		else {
+			// waiting for command execution to return 
+			wait = waitpid(pid, &status, 0);
+		}
+	}
+	
+	free_tokens(arglist);
 }
 
-void echo(char* input){
-    char* answer = input;
-    char* home;
-    int index;
-    int counter = 0;
-    const char ch = '$';
 
-    if(strchr(input,ch) == NULL){
-        printf("%s \n", input);
-    }
-    else{
-        while(counter < strlen(answer))
-        {
-            answer[counter] = answer[counter+1];
-            counter += 1;
-        }
-        answer = getenv(input);
-        if(answer == NULL)
-            printf("Error \n");
-        else
-            printf("%s \n", answer);
-    }
+bool in_redirect(const char *file, char *input, tokenlist *args){
+	printf("Got to input redirection\n");
+	int in = open(file, O_RDONLY);
+	if (in == -1){
+		return false;
+	}
+	else {
+		close(0);
+		dup(in);
+		
+		return true;
+	}
+
 }
 
-
+bool out_redirect(const char *file, char *input, tokenlist *args){
+	char *command[2];	// command variable 
+	command[0] = args->items[0];
+	command[1] = NULL;
+	
+	int out = open(file, O_RDWR | O_CREAT | O_TRUNC);	// output file to replace stdout
+	close(1);
+	dup(out);
+	close(out);
+	
+	int status;	// variable to hold the status of the process
+	pid_t pid, wait;	// pid variables 
+	/*pid = fork();
+	if (pid == 0){
+		execv()
+	}
+	else {
+		wait = waitpid(pid, &status, 0);
+	}*/
+	printf("Got to output redirection\n");
+	return true;
+}
