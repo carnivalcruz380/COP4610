@@ -20,9 +20,9 @@ void free_tokens(tokenlist *tokens);
 
 void echo(char *input);
 void tilde_expand(char *input);
-bool path_search(tokenlist *input);
-void exec_command(char *input, tokenlist *args, bool in_redirection, bool out_redirection, int inposition, int outposition);
-bool pipeline(int pipepos1, int pipepos2, bool check_pipe2, tokenlist *args, char* path);
+char *path_search(tokenlist *input);
+void exec_command(tokenlist *args, bool in_redirection, bool out_redirection, int inposition, int outposition);
+void pipeline(int pipepos1, int pipepos2, bool check_pipe2, tokenlist *args);
 
 int main()
 {
@@ -36,30 +36,85 @@ int main()
 
         char *input = get_input();
         char *echo_resp;
-
-	bool check_pipe1 = false;
-	bool check_pipe2 = false;
-	int  pipepos1 = 0;
-	int  pipepos2 = 0;
+		bool check_tilde = false;
+		bool check_echo = false;
+		bool check_inredirect = false;
+		bool check_outredirect = false;
+		bool check_pipe1 = false;
+		bool check_pipe2 = false;
+		int tildepos = -1;
+		int echopos = -1;
+		int pipepos1 = -1;
+		int pipepos2 = -1;
+		int inpos = -1;
+		int outpos = -1;
+	
 
         tokenlist *tokens = get_tokens(input);
         for (int i = 0; i < tokens->size; i++) {
-
+			//printf("token %d: (%s)\n", i, tokens->items[i]);
         }
-		// block for echo calls
-        if(strcmp(tokens->items[0],"echo") == 0){
+		
+		// file redirection variables 
+	
+	
+		for (int i = 0; i < tokens->size; i++){
+			// block for echo calls
+			/*
+			if(strcmp(tokens->items[0],"echo") == 0){
+				check_echo = true;
+				echopos = i;
+			}*/
+			
 			// block for tilde expansion
-            if(strchr(tokens->items[1], '~') != NULL){
-                tilde_expand(tokens->items[1]);
+			if(strchr(tokens->items[i], '~') != NULL){
+                check_tilde = true;
+				tildepos = i;
             }
+        
+			// block for output redirection
+			if (strcmp(tokens->items[i], ">") == 0){
+				check_outredirect = true;
+				outpos = i;
+			} 
+			// block for input redirection
+			if (strcmp(tokens->items[i], "<") == 0){
+				check_inredirect = true;
+				inpos = i;
+			}
+			
+			// block for piping 
+			if (strcmp(tokens->items[i], "|") == 0){
+				if(check_pipe1){
+					check_pipe2 = true;
+					pipepos2 = i;
+				}
+				else{
+					check_pipe1 = true;
+					pipepos1 = i;
+				}
+			}
+		}
+		
+		// block for tilde expansion
+		if (check_tilde){
+			printf("going to tilde\n");
+			tilde_expand(tokens->items[tildepos]);
+		}
+		else if (check_echo){
+			printf("going to echo\n");
+			echo(tokens->items[echopos + 1]);
+		}
+		else if (!check_pipe1)
+        {
+			printf("about to execute command\n");
+            exec_command(tokens, check_inredirect, check_outredirect, inpos, outpos);
+			printf("finishing executing\n");
         }
-	if (path_search(tokens) == true){
-
-	}
-        else{
-		printf("It was not found\n");
-        }
-
+		else{
+			//printf("goind to pipline\n");
+			pipeline(pipepos1, pipepos2, check_pipe2, tokens);
+		}
 
 
 
@@ -174,7 +229,7 @@ void echo(char* input){
 }
 
 void tilde_expand(char *input){
-    char *home = getenv("HOME");	// enviornmental home variable 
+   char *home = getenv("HOME");	// enviornmental home variable 
     char *position;	// position of tilde variable
     char answer[strlen(home) + strlen(input)];// local home variable 	
     int index;
@@ -185,39 +240,8 @@ void tilde_expand(char *input){
 }
 
 
-bool path_search(tokenlist *input)
+char* path_search(tokenlist *input)
 {
-	// file redirection variables 
-	bool check_inredirect = false;
-	bool check_outredirect = false;
-	bool check_pipe1 = false;
-	bool check_pipe2 = false;
-	int pipepos1 = 0;
-	int pipepos2 = 0;
-	int inpos = -1;
-	int outpos = -1;
-	
-	for (int i = 0; i < input->size; i++){
-		if (strcmp(input->items[i], ">") == 0){
-			check_outredirect = true;
-			outpos = i;
-		}
-		if (strcmp(input->items[i], "<") == 0){
-			check_inredirect = true;
-			inpos = i;
-		}
-		if (strcmp(input->items[i], "|") == 0){
-            if(check_pipe1){
-                check_pipe2 = true;
-                pipepos2 = i;
-            }
-            else{
-                check_pipe1 = true;
-                pipepos1 = i;
-            }
-        }
-	}
-	
 	// static variable initialization
     char slash[2] = "/";	// slash for command path variable 
 	const char delim[2] = ":";	// delimeter for path string variable 
@@ -252,50 +276,53 @@ bool path_search(tokenlist *input)
 	else{
 	}
 
+    char *file = (char*) calloc(strlen(command) + strlen(token), sizeof(char));
+
 	// directory search loop
     while(token != NULL && check != 0)
     {
 		// creating full command file path variable for each directory
         strcpy(filepath, token);
         strcat(filepath, command);
-		
-		// test statements 
-		
+
 		// checking if file exists in the directory
         check = access(filepath,F_OK);
-
-		// if file exists, execute it
-        if(check == 0){
-		if(check_pipe1)
-			pipeline(pipepos1, pipepos2, check_pipe2, input, filepath);
-		else
-			exec_command(filepath, input, check_inredirect, check_outredirect, inpos, outpos);	// pass the file and args to be executed 
-        }
-
+		if (check == 0){
+			strcpy(file, filepath);
+			//printf("the file is: %s\n", file);
+			free(command);
+			free(token);
+			free(filepath);
+			return file;
+		}
 		char *temp2 = strtok(NULL, delim);	// temporary variable to store the next directory to be searched
         token = (char *) realloc(token , sizeof(char) * strlen(temp2));	// reallocating space for the new directory string 
 		strcpy(token, temp2);
     }
 	
 	// memory deallocation
-    free(command);
-    free(token);
+	free(command);
+	free(token);
 	free(filepath);
-    if (check == 0)
-        return true;
-    else
-        return false;
+	return NULL;
 }
 
 
-void exec_command(char *input, tokenlist *args, bool in_redirection, bool out_redirection, int inposition, int outposition){
+void exec_command(tokenlist *args, bool in_redirection, bool out_redirection, int inposition, int outposition){
+	printf("Made it to exec_command\n");
     pid_t pid, wait;	// pid variables 
     int status;
 	char *infile;	// input redirection file variable 
 	char *outfile;	// output redirection file variable 
 	int index;	// position of the redirection variable 
 	tokenlist *arglist = new_tokenlist();	// new token list to parse out redirection
-	
+
+    //printf(path_search(args));
+    printf("before filepath\n");
+	//char filepath[strlen(path_search(args))];
+    printf("calling path search\n");
+	//strcpy(filepath, path_search(args));
+	printf("the filepath is: %s\n", path_search(args));
 	// if blocks to parse the input and remove the redirection statements 
 	if (in_redirection && out_redirection){
 		// retrieving the input and output files 
@@ -322,28 +349,10 @@ void exec_command(char *input, tokenlist *args, bool in_redirection, bool out_re
                             dup(out);
                             close(out);
 
-                        	execv(input, arglist->items);
+                        	execv(path_search(args), arglist->items);
                 	}
                 	else
                         	wait = waitpid(pid, &status, 0);
-
-			//start of output redirect
-			/*index = outposition;
-			arglist = new_tokenlist();
-			for (int i = 0; i < index; i++){
-                                add_token(arglist, args->items[i]);
-                        }
-			pid = fork();
-                	if(pid == 0){
-                        	int out = open(outfile, O_RDWR | O_CREAT | O_TRUNC, 0666);
-				            close(1);
-                        	dup(out);
-                        	close(out);
-
-                        	execv(input,arglist->items);
-                	}
-                	else
-                        	wait = waitpid(pid, &status, 0);*/
 
 		}
 		// block for if the output redirection comes first 
@@ -370,7 +379,7 @@ void exec_command(char *input, tokenlist *args, bool in_redirection, bool out_re
 			dup(in);
 			close(in);
 
-			execv(input, arglist->items);
+			execv(path_search(args), arglist->items);
 		}
 		else
 			wait = waitpid(pid, &status, 0);
@@ -390,7 +399,7 @@ void exec_command(char *input, tokenlist *args, bool in_redirection, bool out_re
 			dup(out);
 			close(out);
 
-			execv(input,arglist->items);
+			execv(path_search(args), arglist->items);
 		}
 		else
 			wait = waitpid(pid, &status, 0);
@@ -413,7 +422,7 @@ void exec_command(char *input, tokenlist *args, bool in_redirection, bool out_re
 		// child process
 		if (pid == 0){
 			// executing command
-			execv(input, args->items);
+			execv(path_search(args), args->items);
 		}
 		// parent process
 		else {
@@ -425,187 +434,145 @@ void exec_command(char *input, tokenlist *args, bool in_redirection, bool out_re
 	free_tokens(arglist);
 }
 
-bool pipeline(int pipepos1, int pipepos2, bool check_pipe2, tokenlist *args, char* path){
-	printf("Made it to pipline\n");
-	int fd[3][2];
-    int fd2[2];
-    pid_t pid1 = -1;	
-	pid_t pid2 = -1;
-    pid_t pid3 = -1;
-    pid_t pid4 = -1;
-	pid_t wait1, wait2, wait3, wait4;
-	int status1, status2, status3, status4;
+void pipeline(int pipepos1, int pipepos2, bool check_pipe2, tokenlist *args){
+	//printf("Made it to pipline\n");
+    //int fd[2];
+	int fd[4];
+    pid_t pid1;	
+	pid_t pid2;
+    pid_t pid3;
+	pid_t wait1, wait2, wait3;
+	int status1, status2, status3;
 	tokenlist *arglist1 = new_tokenlist();		// parsed arguement list variable
 	tokenlist *arglist2 = new_tokenlist();		// parsed arguement list variable
 	tokenlist *arglist3 = new_tokenlist();		// parsed arguement list variable
+	char *path1, *path2, *path3;
+	if (!check_pipe2){
+		path3 = NULL;
+	}
+	
 	
 	// loops for parsing arguement list from input 
 	for (int i = 0; i < pipepos1; i++){
 		add_token(arglist1, args->items[i]);
 	}
-	printf("arg 1 of arglist1: %s\n", arglist1->items[0]);
-	printf("params of arlist1: %s\n", arglist1->items[1]);
+	//printf("arg 1 of arglist1: %s\n", arglist1->items[0]);
+	//printf("params of arlist1: %s\n", arglist1->items[1]);
 	
+	// block for two pipes 
 	if(check_pipe2){
 		for (int i = pipepos1 + 1; i < pipepos2; i++ ){
 			add_token(arglist2, args->items[i]);
 		}
-		printf("got second token\n");
+		for (int i = pipepos2 + 1; i < args->size; i++){
+			add_token(arglist3, args->items[i]);
+		}
+		//printf("got second token\n");
+		pipe(fd);
+		pipe(fd + 2);
 	}
+	// block for a single pipe
 	else{
 		for (int i = pipepos1 + 1; i < args->size; i++){
 			add_token(arglist2, args->items[i]);
 		}
+		pipe(fd);
 	}
-
-	printf("arg 1 of arglist2: %s\n", arglist2->items[0]);
-	printf("params of arlist2: %s\n", arglist2->items[1]);
 	
-	pipe(fd);
-	pid1 = fork();	// stout redirection 
-    // block for stdout redirection
-    if(pid1 == 0){
-		printf("in the first child\n");
-        close(1);
-        dup(fd[1]);
-        close(fd[0]);
-		close(fd[1]);
-        execv(path, arglist1->items);
-    }
-		
-    // block for stdin redirection
-    if (pid2 == 0){
-		printf("in the second child\n");
-        close(0);
-        dup(fd[0]);
-        close(fd[0]);
-		close(fd[1]);	
-        execv(path, arglist2->items);
-    }
-	
-	close(fd[0]);
-	close(fd[1]);
-	
-	tokenlist *newlist = new_tokenlist();
-	for (int i = pipepos1 + 1; i < args->size; i++){
-		add_token(newlist, args->items[i]);
-	}
-	printf("calling the next round of path search\n");
-	path_search(newlist);
-	wait1 = waitpid(pid1, &status1, 0);
-	wait2 = waitpid(pid2, &status2, 0);
-	
-	
-	////////////////////////////////////////////////////////////////////////////
-	fd[3][2];
-	pid_t pid1, pid2, pid3;
-	for (int i = 0; i < 3 i++){
-		pipe(fd[i]);
-	}
-	pid1 = fork();
-	if (pid1 < 0){
-		return false;
-	}
-	else{
-		if (pid1 == 0){
-			close(1);
-			dup(fd[1][1]);
-			
-			close(0);
-			dup(fd[0][0]);
-			
-			close(fd[0][1]);
-			close(fd[1][0]);
-			close(fd[2][0]);
-			close(fd[2][1]);
-			execv(path, arglist1->items);
-			
+	//two pipes
+	if (check_pipe2){
+		path1 = path_search(arglist1);
+		//printf("path1: %s\n", path1);
+		pid1 = fork();	// stout redirection 
+		// block for stdout redirection
+		if(pid1 == 0){
+			//printf("in the first child\n");
+			//dup2(fd[1], 1);
+			//close(fd[0]);		// close file not using first 
+			//close(fd[1]);
+			dup2(fd[1], 1);
+			close(fd[0]);
+			close(fd[1]);
+			close(fd[2]);
+			close(fd[3]);
+			execv(path1, arglist1->items);
 		}
 		else {
-			close(fd[1][1]);
-			close(fd[0][0]);
-			waitpid(pid1, &status1, 0);
+			path2 = path_search(arglist2);
+			pid2 = fork();
+			if (pid2 == 0){
+				//printf("In the second child\n");
+				//dup2(fd[0], 0);
+				//dup2(fd[1], 1);
+				//close(fd[1]);
+				//close(fd[0]);
+				dup2(fd[0], 0);
+				dup2(fd[3], 1);
+				close(fd[0]);
+				close(fd[1]);
+				close(fd[2]);
+				close(fd[3]);
+				execv(path2, arglist2->items);
+			}
+			else{
+				path3 = path_search(arglist3);
+				//printf("path3: %s\n", path3);
+				pid3 = fork();
+				if (pid3 == 0){
+					//printf("In the third child\n");
+					//dup2(fd[0], 0);
+					//close(fd[1]);
+					//close(fd[0]);
+					dup2(fd[2], 0);
+					close(fd[0]);
+					close(fd[1]);
+					close(fd[2]);
+					close(fd[3]);
+					execv(path3, arglist3->items);
+				}
+			}
 		}
 		
+		close(fd[0]);
+		close(fd[1]);
+		close(fd[2]);
+		close(fd[3]);
+		free_tokens(arglist1);
+		free_tokens(arglist2);
+		free_tokens(arglist3);
 		
+		wait1 = waitpid(pid1, &status1, 0);
+		wait2 = waitpid(pid2, &status2, 0);
+		wait3 = waitpid(pid3, &status3, 0);
 	}
-	pid2 = fork();
-	if (pid2 < 0){
-		return false;
-	}
+	//one pipe
 	else{
-		close(1);
-		dup(fd[2][1]);
-		close(fd[2][1]);
-		close(0);
-		dup(fd[1][0]);
-		close(fd[0][0]);
-		close(fd[0][1]);
-		close(fd[1][0]);
-		close(fd[2][0]);
-		close(fd[2][1]);
-		execv(path, arglist1->items);
-	}
-	pid3 = fork();
-	if (pid3 < 0){
-		return false;
-	}
-	else{
-		close(1);
-		dup(fd[0][1]);
-		close(fd[0][1]);
-		close(0);
-		dup(fd[2][0]);
-		close(fd[2][0]);
-		close(fd[0][1]);
-		close(fd[1][0]);
-		close(fd[2][0]);
-		close(fd[2][1]);
-		execv(path, arglist1->items);
-	}
-	close(fd[1][1]);
-	close(fd[0][0]);
-	//////////////////////////////////////////////////////////////////////////////////
-	/*
-	printf("Done with first block\n");
-    // block for if there is a second pipe
-    if(check_pipe2 == true){
-		for (int i = pipepos2 + 1; i < args->size; i++){
-			add_token(arglist3, args->items[i]);
+		path1 = path_search(arglist1);
+		//printf("path1: %s\n", path1);
+		pid1 = fork();	// stout redirection 
+		// block for stdout redirection
+		if(pid1 == 0){
+			dup2(fd[1], 1);
+			close(fd[0]);
+			close(fd[1]);
+			execv(path1, arglist1->items);
 		}
-		printf("arg 1 of arglist3: %s\n", arglist3->items[0]);
-		printf("params of arlist3: %s\n", arglist3->items[1]);
+		path2 = path_search(arglist2);
+		pid2 = fork();
+		if (pid2 == 0){
+			//printf("In the second child\n");
+			dup2(fd[0], 0);
+			close(fd[0]);
+			close(fd[1]);
+			execv(path2, arglist2->items);
+		}
 		
-		pipe(fd2);
-        pid3 = fork();	// stout redirection
-	    pid4 = fork();	// stdin redirection
-        // block for stdout redirection
-        if(pid3 == 0){
-			printf("in the third child\n");
-            close(1);
-            dup(fd2[1]);
-            close(fd2[1]);
+		close(fd[0]);
+		close(fd[1]);
+		free_tokens(arglist1);
+		free_tokens(arglist2);
+		wait1 = waitpid(pid1, &status1, 0);
+		wait2 = waitpid(pid2, &status2, 0);
+	}
 
-            execv(path, arglist2->items);
-        }
-		else{
-			wait3 = waitpid(pid3, &status3, 0);
-		}
-        // block for stdin redirection
-        if (pid4 == 0){
-			printf("in the third child\n");
-            close(0);
-            dup(fd2[0]);
-            close(fd2[0]);
-
-            execv(path, arglist3->items);
-        }
-		else{
-			wait4 = waitpid(pid4, &status4, 0);
-		}
-    }//end pipe2
-    
-*/
-
-	return true;	
 }
