@@ -125,7 +125,9 @@ int main()
                 check_cd = true;
                 commandcount += 1;
             }
-        }
+			else
+				check_cd = true;
+			}
 
         // block to check if command was jobs
         if(strcmp(tokens->items[0], "jobs") == 0){
@@ -225,9 +227,16 @@ int main()
         // block to check if a command should be executed
         if (!check_pipe1 && !check_echo)
         {
-            if (exec_command(tokens, check_inredirect, check_outredirect, check_background, inpos, outpos, backpos)){
+			if(check_cd){
+				continue;
+			}
+			else if(check_tilde){
+				continue;
+			}
+            else if (exec_command(tokens, check_inredirect, check_outredirect, check_background, inpos, outpos, backpos)){
                 commandcount += 1;
             }
+			
             else{
                 printf("Error: executing %s\n", tokens->items[0]);
             }
@@ -458,7 +467,7 @@ int change_direct(tokenlist *input){
         return 1;
     }
 
-    if(input->items[1] == NULL) {                                   //if theres no arguments the default
+    if(input->items[1] == NULL || strcmp(input->items[1], "~") == 0) {                                   //if theres no arguments the default
         chdir(getenv("HOME"));                              // directory to change to is the home directory
         return 0;
     }
